@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from etf_simulator.base import Etf
+from etf_simulator.etf import Etf
 from etf_simulator.investment_strategy import (
     IndividualEtfInvestmentStrategy,
     get_investment_matrix,

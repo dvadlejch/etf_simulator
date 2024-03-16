@@ -1,4 +1,5 @@
 """Module containing an ETF class"""
+import typing
 from dataclasses import dataclass
 
 import numpy as np
@@ -6,101 +7,81 @@ import pandas as pd
 import numpy.typing as npt
 import scipy.stats
 import yfinance as yf
+from scipy.stats import norm
 
 
-@dataclass
-class Etf:
-    """Class representing ETF data."""
+def calculate_return_portfolio(
+    daily_returns_matrix: npt.NDArray,
+    weights: npt.NDArray,
+    investment_amounts: npt.NDArray,
+    buy_fee: npt.NDArray,
+):
+    j_dim, i_dim = daily_returns_matrix.shape
+    assert len(weights) == j_dim
+    assert len(investment_amounts) == i_dim
 
-    name: str
-    ticker: str | yf.Ticker | None = None
-    price_data: pd.DataFrame | None = None
-    daily_returns: npt.NDArray | None = None
-    daily_returns_histogram: scipy.stats.rv_histogram | None = None
-    _time_stamps: list[pd.Timestamp] | None = None
-
-    def __post_init__(self):
-        if isinstance(self.ticker, str):
-            self.ticker = yf.Ticker(self.ticker)
-
-        if self.price_data is None and self.daily_returns is None:
-            self.price_data = self._get_price_data()
-
-        if self.daily_returns is None:
-            self.daily_returns = self._get_daily_returns()
-
-        if self.daily_returns_histogram is None:
-            self.daily_returns_histogram = self._get_daily_returns_histogram()
-
-    def _get_price_data(self) -> pd.DataFrame:
-        return self.ticker.history(period="max")
-
-    def _get_daily_returns(self) -> npt.NDArray:
-        if self.price_data is None:
-            raise ValueError(
-                "Price dataframe is not set. Please get the price dataframe from which "
-                "the daily returns can be calculated."
-            )
-        return self.price_data["Close"].pct_change().to_numpy[1:]
-
-    def _get_daily_returns_histogram(self) -> scipy.stats.rv_histogram:
-        if self.daily_returns is None:
-            raise ValueError(
-                "Daily returns are not set and the histogram can't be calculated."
-            )
-
-        return scipy.stats.rv_histogram(
-            np.histogram(
-                self.daily_returns,
-                bins=len(self.daily_returns),
-                density=True,
-            ),
-            density=True,
-        )
-
-    def __eq__(self, other):
-        return (
-            self.name == other.name
-            and np.allclose(self.daily_returns, other.daily_returns)
-            and self.ticker == other.ticker
-        )
-
-    @property
-    def time_stamps(self):
-        if self._time_stamps is None:
-            self._time_stamps = list(self.price_data.index)
-        return self._time_stamps
+    p_ji = np.array(
+        [
+            np.prod((daily_returns_matrix + 1)[:, i + 1 :], axis=1)
+            for i in range(daily_returns_matrix.shape[1])
+        ]
+    )
+    invested_matrix = np.tensordot(weights, investment_amounts, axes=0)
+    for i in range(len(buy_fee)):
+        invested_matrix[i, :][invested_matrix[i, :] > 0] -= buy_fee[i]
+    return np.sum(np.diag(invested_matrix @ p_ji)) / np.sum(investment_amounts) - 1
 
 
-class Portfolio:
-    """Class representing a portfolio containing one or more ETFs."""
+def calculate_return_portfolio_time_series(
+    daily_returns_matrix: npt.NDArray,
+    weights: npt.NDArray,
+    investment_amounts: npt.NDArray,
+    buy_fee: npt.NDArray,
+):
+    j_dim, i_dim = daily_returns_matrix.shape
+    assert len(weights) == j_dim
+    assert len(investment_amounts) == i_dim
 
-    def __init__(self, etfs: list[Etf], investment_strategy):
-        self.etfs = etfs
-        self.investment_strategy = investment_strategy
+    p_ji = np.array(
+        [
+            [
+                np.prod((daily_returns_matrix + 1)[:, i + 1 : i_dim - j], axis=1)
+                for i in range(daily_returns_matrix.shape[1])
+            ]
+            for j in range(daily_returns_matrix.shape[1])
+        ]
+    )
 
-        self._daily_returns_covariance: npt.NDArray | None = None
-        self._daily_returns_data_matrix: npt.NDArray | None = None
+    invested_matrix = np.tensordot(weights, investment_amounts, axes=0)
+    for i in range(len(buy_fee)):
+        invested_matrix[i, :][invested_matrix[i, :] > 0] -= buy_fee[i]
 
-    @property
-    def daily_returns_data_matrix(self) -> npt.NDArray:
-        """TODO: figure out how to deal with time"""
-        if self._daily_returns_data_matrix is None:
-            max_data = np.min([len(etf.daily_returns) for etf in self.etfs])
-            self._daily_returns_data_matrix = np.vstack(
-                [etf.daily_returns[-max_data:] for etf in self.etfs]
-            )
-        return self._daily_returns_data_matrix
+    amount_daily_matrices = invested_matrix @ p_ji
+    amount_daily = np.zeros(i_dim - 1)
+    for i in range(i_dim - 1):
+        amount_daily[i] = np.sum(np.diag(amount_daily_matrices[i, :, :]))
 
-    @property
-    def daily_returns_covariance(self) -> npt.NDArray:
-        """TODO"""
-        if self._daily_returns_covariance is None:
-            self._daily_returns_covariance = np.cov(self.daily_returns_data_matrix)
-        return self._daily_returns_covariance
+    return np.flip(np.append(amount_daily, investment_amounts[0]))
 
-    def calculate_return(self, time_period_days: int | None = None):
-        """TODO"""
-        # calculate returns for defined amount of time since the start defined in
-        # investment strategy. It needs to be figured out how to deal with time also
-        # w.r.t. daily returns matrix.
+
+def get_corelated_samples(
+        ppfs: typing.List[typing.Callable[[np.ndarray], np.ndarray]],
+        # List of $num_dims percentile point functions
+        cov_matrix: np.ndarray,  # covariance matrix, shape($num_dims, $num_dims)
+        num_samples: int,  # number of random samples to draw
+):
+    num_variables = len(ppfs)
+    rand = np.random.multivariate_normal(
+        np.zeros(num_variables),
+        cov_matrix,
+        (num_samples,),
+        check_valid="raise",
+    )
+
+    rand_uniform = norm.cdf(rand)
+
+    rand_final_dist = np.zeros((num_variables, num_samples))
+    for i, ppf in enumerate(ppfs):
+        rand_final_dist[i, :] = ppf(rand_uniform[:, i])
+
+    return rand_final_dist

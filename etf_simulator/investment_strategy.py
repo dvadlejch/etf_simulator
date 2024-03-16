@@ -2,7 +2,7 @@ from dataclasses import dataclass
 
 import numpy as np
 import numpy.typing as npt
-from etf_simulator.base import Etf
+from etf_simulator.etf import Etf
 
 
 @dataclass
