@@ -13,16 +13,17 @@ class Etf:
     """Class representing ETF data."""
 
     name: str
-    ticker: str | yf.Ticker
+    ticker: str | yf.Ticker | None = None
     price_data: pd.DataFrame | None = None
     daily_returns: npt.NDArray | None = None
     daily_returns_histogram: scipy.stats.rv_histogram | None = None
+    _time_stamps: list[pd.Timestamp] | None = None
 
     def __post_init__(self):
         if isinstance(self.ticker, str):
             self.ticker = yf.Ticker(self.ticker)
 
-        if self.price_data is None:
+        if self.price_data is None and self.daily_returns is None:
             self.price_data = self._get_price_data()
 
         if self.daily_returns is None:
@@ -57,20 +58,24 @@ class Etf:
             density=True,
         )
 
+    def __eq__(self, other):
+        return (
+            self.name == other.name
+            and np.allclose(self.daily_returns, other.daily_returns)
+            and self.ticker == other.ticker
+        )
 
-@dataclass
-class InvestmentStrategy:
-    """contains parameters of investment strategy."""
-
-    etf_weights: npt.NDArray
-    investment_amounts: npt.NDArray
-    buy_fee: npt.NDArray
+    @property
+    def time_stamps(self):
+        if self._time_stamps is None:
+            self._time_stamps = list(self.price_data.index)
+        return self._time_stamps
 
 
 class Portfolio:
     """Class representing a portfolio containing one or more ETFs."""
 
-    def __init__(self, etfs: list[Etf], investment_strategy: InvestmentStrategy):
+    def __init__(self, etfs: list[Etf], investment_strategy):
         self.etfs = etfs
         self.investment_strategy = investment_strategy
 
