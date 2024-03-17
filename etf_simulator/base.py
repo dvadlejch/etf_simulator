@@ -1,5 +1,7 @@
 """Module containing an ETF class"""
+import multiprocessing
 import typing
+from functools import partial
 
 import numpy as np
 import numpy.typing as npt
@@ -81,3 +83,65 @@ def get_correlated_samples(
         rand_final_dist[i, :] = ppf(rand_uniform[:, i])
 
     return rand_final_dist
+
+
+def run_monte_carlo_sim_portfolio(
+    monte_carlo_repetitions,
+    ppfs,
+    cov_matrix,
+    weights,
+    investment_amounts,
+    buy_fee,
+):
+    pool_size = np.min([monte_carlo_repetitions, multiprocessing.cpu_count() - 1])
+    repetitons_serial = int(np.ceil(monte_carlo_repetitions / pool_size))
+
+    run_monte_carlo_sim_portfolio_serial_wrapped = partial(
+        run_monte_carlo_sim_portfolio_serial,
+        monte_carlo_repetitions=repetitons_serial,
+        ppfs=ppfs,
+        cov_matrix=cov_matrix,
+        weights=weights,
+        investment_amounts=investment_amounts,
+        buy_fee=buy_fee,
+    )
+
+    with multiprocessing.Pool(processes=pool_size) as pool:
+        simulated_returns = list(
+            pool.imap(
+                run_monte_carlo_sim_portfolio_serial_wrapped, list(range(pool_size))
+            )
+        )
+    return np.asarray(simulated_returns).flatten()
+
+
+def run_monte_carlo_sim_portfolio_serial(
+    i, monte_carlo_repetitions, ppfs, cov_matrix, weights, investment_amounts, buy_fee
+):
+    run_monte_carlo_single_repetition_wrapped = partial(
+        run_monte_carlo_single_repetition,
+        ppfs=ppfs,
+        cov_matrix=cov_matrix,
+        weights=weights,
+        investment_amounts=investment_amounts,
+        buy_fee=buy_fee,
+    )
+
+    simulated_returns = list(
+        map(run_monte_carlo_single_repetition_wrapped, range(monte_carlo_repetitions))
+    )
+    return np.asarray(simulated_returns)
+
+
+def run_monte_carlo_single_repetition(
+    i, ppfs, cov_matrix, weights, investment_amounts, buy_fee
+):
+    daily_returns_matrix_sample = get_correlated_samples(
+        ppfs,
+        cov_matrix,
+        len(investment_amounts),
+    )
+
+    return calculate_return_portfolio(
+        daily_returns_matrix_sample, weights, investment_amounts, buy_fee
+    )
