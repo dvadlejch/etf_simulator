@@ -1,12 +1,8 @@
 """Module containing an ETF class"""
 import typing
-from dataclasses import dataclass
 
 import numpy as np
-import pandas as pd
 import numpy.typing as npt
-import scipy.stats
-import yfinance as yf
 from scipy.stats import norm
 
 
@@ -64,11 +60,11 @@ def calculate_return_portfolio_time_series(
     return np.flip(np.append(amount_daily, investment_amounts[0]))
 
 
-def get_corelated_samples(
-        ppfs: typing.List[typing.Callable[[np.ndarray], np.ndarray]],
-        # List of $num_dims percentile point functions
-        cov_matrix: np.ndarray,  # covariance matrix, shape($num_dims, $num_dims)
-        num_samples: int,  # number of random samples to draw
+def get_correlated_samples(
+    ppfs: typing.List[typing.Callable[[np.ndarray], np.ndarray]],
+    # List of $num_dims percentile point functions
+    cov_matrix: np.ndarray,  # covariance matrix, shape($num_dims, $num_dims)
+    num_samples: int,  # number of random samples to draw
 ):
     num_variables = len(ppfs)
     rand = np.random.multivariate_normal(
