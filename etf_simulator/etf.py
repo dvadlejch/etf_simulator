@@ -40,7 +40,7 @@ class Etf:
                 "Price dataframe is not set. Please get the price dataframe from which "
                 "the daily returns can be calculated."
             )
-        return self.price_data["Close"].pct_change().to_numpy[1:]
+        return self.price_data["Close"].pct_change().to_numpy()[1:]
 
     def _get_daily_returns_histogram(self) -> rv_histogram:
         if self.daily_returns is None:
